@@ -1,0 +1,48 @@
+# require-network-tags.sentinel
+#
+# Purpose: Ensure every Compute Engine instance has at least one network tag so
+# that firewall rules can target it correctly. Tagless instances fall through to
+# the deny-all rule, which breaks connectivity unexpectedly.
+#
+# Enforcement: advisory (warns but does not block)
+
+import "tfplan/v2" as tfplan
+
+# ── Optional: specific tags every instance must have at least one of ──────────
+# Leave empty to just require "at least one tag of any kind".
+
+required_tags = [
+  "internal",
+]
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+all_compute_instances = filter tfplan.resource_changes as _, rc {
+  rc.type is "google_compute_instance" and
+  (rc.change.actions contains "create" or rc.change.actions contains "update")
+}
+
+has_required_tag = func(rc) {
+  tags = rc.change.after.tags else []
+  if length(required_tags) is 0 {
+    return length(tags) > 0
+  }
+  return any required_tags as t { t in tags }
+}
+
+violations = filter all_compute_instances as address, rc {
+  not has_required_tag(rc)
+}
+
+# ── Messages ──────────────────────────────────────────────────────────────────
+
+msgs = map violations as address, _ {
+  address + " has no required network tags. Each instance should include at " +
+  "least one of: " + required_tags
+}
+
+# ── Main rule ─────────────────────────────────────────────────────────────────
+
+main = rule {
+  length(violations) is 0
+}

@@ -1,0 +1,56 @@
+# require-labels.sentinel
+#
+# Purpose: Ensure all Compute Engine instances and the VPC network carry a
+# minimum set of labels for cost attribution and ops visibility.
+#
+# Enforcement: soft-mandatory
+
+import "tfplan/v2" as tfplan
+
+# ── Required labels ───────────────────────────────────────────────────────────
+
+required_label_keys = [
+  "managed-by",
+  "environment",
+  "team",
+  "cost-center",
+]
+
+# ── Resource types to check ───────────────────────────────────────────────────
+
+label_bearing_types = [
+  "google_compute_instance",
+  "google_compute_network",
+  "google_compute_subnetwork",
+]
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+all_resources = filter tfplan.resource_changes as _, rc {
+  rc.type in label_bearing_types and
+  (rc.change.actions contains "create" or rc.change.actions contains "update")
+}
+
+# Returns missing required keys for a given resource change
+missing_labels = func(rc) {
+  labels = rc.change.after.labels else {}
+  return filter required_label_keys as key {
+    key not in labels or labels[key] is ""
+  }
+}
+
+violations = filter all_resources as address, rc {
+  length(missing_labels(rc)) > 0
+}
+
+# ── Messages ──────────────────────────────────────────────────────────────────
+
+msgs = map violations as address, rc {
+  address + " is missing required labels: " + missing_labels(rc)
+}
+
+# ── Main rule ─────────────────────────────────────────────────────────────────
+
+main = rule {
+  length(violations) is 0
+}
