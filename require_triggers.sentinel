@@ -1,0 +1,26 @@
+# require_triggers.sentinel
+#
+# Enforces that every null_resource being created or updated
+# has at least one trigger defined. Null resources without
+# triggers will not re-run provisioners on subsequent applies,
+# which is almost always unintentional.
+
+import "tfplan/v2" as tfplan
+
+# Collect all null_resource changes that are creates or updates
+null_resources = filter tfplan.resource_changes as _, rc {
+  rc.type is "null_resource" and
+  ("create" in rc.change.actions or "update" in rc.change.actions)
+}
+
+# Every null_resource must have a non-null, non-empty triggers map
+require_triggers = rule {
+  all null_resources as address, rc {
+    rc.change.after.triggers is not null and
+    length(rc.change.after.triggers) > 0
+  }
+}
+
+main = rule {
+  require_triggers
+}
